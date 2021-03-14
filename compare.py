@@ -5,7 +5,26 @@ import json
 
 
 def bash(cmd, cwd=".", stdout=None):
+    cmd = cmd.replace("docker ", "podman ")
     subprocess.run(cmd.split(), cwd=cwd, stdout=stdout)
+
+
+def remove_timestamps_and_rootfs(config):
+    if type(config) == list:
+        for conf in config:
+            remove_timestamps_and_rootfs(conf)
+    if type(config) == dict:
+        try:
+            del config["rootfs"]
+        except:
+            pass
+        try:
+            del config["created"]
+        except:
+            pass
+        for key, value in config.items():
+            remove_timestamps_and_rootfs(value)
+
 
 
 def diff_docker_saves(docker_folder):
@@ -21,7 +40,6 @@ def diff_docker_saves(docker_folder):
     bash(f"cp docker-compressor-input/Dockerfile.compressed docker-compressor-output/Dockerfile.decompressed")
     decompressed = pathlib.Path("docker-compressor-output/Dockerfile.decompressed").read_text()
     if uncompressed == decompressed:
-        bash("rm -rf docker-compressor-input docker-compressor-output")
         return compressed_size
     bash(f"cp -r {docker_folder} test1/")
     bash(f"cp -r {docker_folder} test2/")
@@ -58,8 +76,17 @@ def diff_docker_saves(docker_folder):
             diff_stdout = diff_process.communicate()[0]
             if len(diff_stdout) > 0:
                 return len(uncompressed) * 10
-    bash("rm -rf test1 test2 docker-compressor-input docker-compressor-output uncompressed decompressed")
+    with open(f"uncompressed/{manifest_uncompressed[0]['Config']}") as config:
+        config_uncompressed = json.load(config)
+        remove_timestamps_and_rootfs(config_uncompressed)
+    with open(f"decompressed/{manifest_decompressed[0]['Config']}") as config:
+        config_decompressed = json.load(config)
+        remove_timestamps_and_rootfs(config_decompressed)
+    if config_decompressed != config_uncompressed:
+        return len(uncompressed) * 10
     return compressed_size
 
 
-diff_docker_saves("docker_project")
+compressed_size = diff_docker_saves("docker_project")
+bash("rm -rf test1 test2 docker-compressor-input docker-compressor-output uncompressed decompressed")
+print(compressed_size)
